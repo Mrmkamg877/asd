@@ -307,6 +307,17 @@ a);requestAnimationFrame(function(){g(document.body)})})}var l=["material-icons"
                         </button>
                     </div>
 
+                    <!-- File Backup -->
+                    <div class="grid grid-cols-2 gap-3">
+                        <button class="bg-emerald-700 hover:bg-emerald-600 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2" onclick="exportToJSONFile()">
+                            <span class="material-symbols-outlined text-sm">upload_file</span> تصدير ملف
+                        </button>
+                        <button class="bg-amber-600 hover:bg-amber-500 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2" onclick="triggerImportFile()">
+                            <span class="material-symbols-outlined text-sm">file_open</span> استيراد ملف
+                        </button>
+                        <input type="file" id="import-file-input" class="hidden" accept=".json" onchange="importFromJSONFile(event)">
+                    </div>
+
                     <button class="w-full mt-4 border border-red-900/50 text-red-500 bg-red-900/10 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2" onclick="clearData()">
                         <span class="material-symbols-outlined text-sm">delete</span> حذف الكل
                     </button>
@@ -370,9 +381,28 @@ a);requestAnimationFrame(function(){g(document.body)})})}var l=["material-icons"
             confirmCallback = null;
         }
 
+        // --- Persistence Functions ---
+        function saveToLocalStorage() {
+            localStorage.setItem('speed_cameras', JSON.stringify(cameras));
+        }
+
+        function loadFromLocalStorage() {
+            const saved = localStorage.getItem('speed_cameras');
+            if (saved) {
+                try {
+                    const parsed = JSON.parse(saved);
+                    if (Array.isArray(parsed)) return parsed;
+                } catch (e) { console.error("Error loading cameras:", e); }
+            }
+            return null;
+        }
+
         // --- Initialization ---
         function initializeApp() {
-            if (window.restoredCameras && Array.isArray(window.restoredCameras)) {
+            const localCameras = loadFromLocalStorage();
+            if (localCameras) {
+                cameras = localCameras;
+            } else if (window.restoredCameras && Array.isArray(window.restoredCameras)) {
                 cameras = window.restoredCameras;
             }
 
@@ -431,7 +461,10 @@ a);requestAnimationFrame(function(){g(document.body)})})}var l=["material-icons"
             document.getElementById('start-screen').style.opacity = '0';
             setTimeout(() => document.getElementById('start-screen').classList.add('hidden'), 500);
             
-            if (window.restoredCameras && Array.isArray(window.restoredCameras)) {
+            const localCameras = loadFromLocalStorage();
+            if (localCameras) {
+                cameras = localCameras;
+            } else if (window.restoredCameras && Array.isArray(window.restoredCameras)) {
                 cameras = window.restoredCameras;
             }
             if(!map) initMap();
@@ -515,6 +548,7 @@ a);requestAnimationFrame(function(){g(document.body)})})}var l=["material-icons"
             const newCamera = { id: camId, lat: userPosition[0], lng: userPosition[1], timestamp: Date.now() };
             
             cameras.push(newCamera);
+            saveToLocalStorage();
             
             // **Suppress Alert for this specific camera immediately**
             // Because we are right next to it, we don't want an alarm now.
@@ -543,6 +577,7 @@ a);requestAnimationFrame(function(){g(document.body)})})}var l=["material-icons"
 
         function removeCameraById(id) {
             cameras = cameras.filter(c => c.id !== id);
+            saveToLocalStorage();
             const markerIndex = cameraMarkers.findIndex(m => m.id === id);
             if (markerIndex !== -1) {
                 map.removeLayer(cameraMarkers[markerIndex].marker);
@@ -751,6 +786,54 @@ a);requestAnimationFrame(function(){g(document.body)})})}var l=["material-icons"
             setTimeout(() => toast.classList.add('opacity-0', '-translate-y-4'), 3000);
         }
 
+        function exportToJSONFile() {
+            const dataStr = JSON.stringify(cameras, null, 2);
+            const blob = new Blob([dataStr], { type: "application/json" });
+            const link = document.createElement("a");
+            link.href = URL.createObjectURL(blob);
+            link.download = `cameras-backup-${new Date().toISOString().split('T')[0]}.json`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            showToast("جاري تصدير الملف...");
+        }
+
+        function triggerImportFile() {
+            document.getElementById('import-file-input').click();
+        }
+
+        function importFromJSONFile(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const data = JSON.parse(e.target.result);
+                    if (Array.isArray(data)) {
+                        cameras = [];
+                        cameraMarkers.forEach(m => map.removeLayer(m.marker));
+                        cameraMarkers = [];
+                        data.forEach(cam => { 
+                            if(!cam.id) cam.id = 'imported_' + Math.random();
+                            cameras.push(cam); 
+                            addCameraMarker(cam); 
+                        });
+                        saveToLocalStorage();
+                        updateCount();
+                        toggleSettings();
+                        showToast("تم استيراد البيانات من الملف");
+                    } else {
+                        alert("تنسيق الملف غير صحيح");
+                    }
+                } catch (err) {
+                    alert("خطأ في قراءة الملف: تأكد من أنه ملف JSON صحيح");
+                }
+                event.target.value = ''; // Reset input
+            };
+            reader.readAsText(file);
+        }
+
         function exportData() {
             const dataStr = JSON.stringify(cameras);
             document.getElementById('data-area').value = dataStr;
@@ -769,6 +852,7 @@ a);requestAnimationFrame(function(){g(document.body)})})}var l=["material-icons"
                         cameras.push(cam); 
                         addCameraMarker(cam); 
                     });
+                    saveToLocalStorage();
                     updateCount();
                     toggleSettings();
                     showToast("تم استعادة البيانات");
@@ -781,6 +865,7 @@ a);requestAnimationFrame(function(){g(document.body)})})}var l=["material-icons"
         function clearData() {
             showConfirm("حذف جميع الكاميرات المسجلة؟", () => {
                 cameras = [];
+                saveToLocalStorage();
                 cameraMarkers.forEach(m => map.removeLayer(m.marker));
                 cameraMarkers = [];
                 updateCount();
